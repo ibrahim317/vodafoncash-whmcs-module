@@ -60,7 +60,7 @@ $normalizedAmount = (string)(float)$normalizedAmount;
 
 // Fetch client details for identifiable username
 $client = Capsule::table('tblclients')->where('id', $clientId)->first();
-$clientNameStr = $client ? trim($client->firstname . ' ' . $client->lastname . ' (' . $client->email . ')') : (string)$invoice->userid;
+$clientNameStr = $client ? trim($client->firstname . ' ' . $client->lastname . ' (' . $clientId . ')') : (string)$clientId;
 
 // The VodafoneCash backend checks if a transaction happened matching this phone and amount
 $apiUrl = $systemUrl . "/api/payment_link_check?" . http_build_query([
@@ -68,7 +68,8 @@ $apiUrl = $systemUrl . "/api/payment_link_check?" . http_build_query([
     'amount'    => $normalizedAmount,
     'user_name' => $clientNameStr,
     'store_id'  => (string)$storeId,
-    'lang'      => $lang
+    'lang'      => $lang,
+    'client_id' => (string)$clientId
 ]);
 
 // Call external API via cURL
