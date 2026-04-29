@@ -53,13 +53,18 @@ $vfcapi_base = isset($gatewayParams['systemUrl']) ? $gatewayParams['systemUrl'] 
 $systemUrl = rtrim($vfcapi_base, '/');
 $storeId = isset($gatewayParams['storeId']) ? $gatewayParams['storeId'] : (isset($gatewayParams['storeid']) ? $gatewayParams['storeid'] : '');
 
+// Normalize amount: remove any currency symbols, commas, spaces - keep digits and decimal point only
+$normalizedAmount = preg_replace('/[^0-9.]/', '', trim($amount));
+// Remove trailing zeros after decimal for clean comparison (e.g. "100.00" -> "100")
+$normalizedAmount = rtrim(rtrim($normalizedAmount, '0'), '.');
+
 // The VodafoneCash backend checks if a transaction happened matching this phone and amount
 $apiUrl = $systemUrl . "/api/payment_link_check?" . http_build_query([
-    'phone' => trim($phone),
-    'amount' => trim($amount),
-    'user_name' => $invoice->userid,
-    'store_id' => $storeId,
-    'lang' => $lang
+    'phone'     => trim($phone),
+    'amount'    => $normalizedAmount,
+    'user_name' => (string)$invoice->userid,
+    'store_id'  => (string)$storeId,
+    'lang'      => $lang
 ]);
 
 // Call external API via cURL
@@ -68,8 +73,11 @@ curl_setopt($ch, CURLOPT_URL, $apiUrl);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
 curl_setopt($ch, CURLOPT_TIMEOUT, 30);
 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Safety for diverse server environments
+curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);  // Follow redirects (e.g. http->https)
+curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
 $response = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
 if (curl_errno($ch)) {
     $curlError = curl_error($ch);
 }
@@ -77,7 +85,7 @@ curl_close($ch);
 
 $responseData = json_decode($response, true);
 $transactionStatus = 'Error';
-$logMessage = "HTTP Code: $httpCode | Response: $response | User Amount: $amount | Expected Total: {$invoice->total} | Client ID: {$invoice->userid}" . (isset($curlError) ? " | cURL Error: $curlError" : "");
+$logMessage = "HTTP Code: $httpCode | Final URL: $finalUrl | Normalized Amount: $normalizedAmount | Raw Amount: $amount | Response: $response | Expected Total: {$invoice->total} | Client ID: {$invoice->userid} | Store ID: $storeId" . (isset($curlError) ? " | cURL Error: $curlError" : "");
 
 if ($httpCode == 200 && $responseData && isset($responseData['status'])) {
     if ($responseData['status'] === true) {
@@ -123,9 +131,23 @@ if ($httpCode == 200 && $responseData && isset($responseData['status'])) {
     }
 } else {
     logTransaction($gatewayParams['name'], $_POST + ['apiResponse' => $logMessage], $transactionStatus);
+
+    // Extract a meaningful error message from the API response if available
+    $apiErrorMsg = '';
+    if ($responseData && isset($responseData['message'])) {
+        $apiErrorMsg = htmlspecialchars($responseData['message']);
+    } elseif (isset($curlError)) {
+        $apiErrorMsg = 'Network error: ' . htmlspecialchars($curlError);
+    } elseif ($httpCode > 0) {
+        $apiErrorMsg = 'Server returned HTTP ' . $httpCode . '.';
+    } else {
+        $apiErrorMsg = 'Could not reach the payment server.';
+    }
+
     die("<div style='max-width:500px; margin: 50px auto; padding: 30px; border: 1px solid #feb2b2; background: #fff5f5; border-radius: 12px; text-align:center; font-family:sans-serif;'>
-         <h3 style='color:#c53030; margin-top:0;'>Error communicating with the payment network. Please try again.</h3>
-         <p style='color:#718096; font-size:0.9rem;'>Host: " . parse_url($apiUrl, PHP_URL_HOST) . "</p>
+         <h3 style='color:#c53030; margin-top:0;'>Payment verification failed</h3>
+         <p style='color:#4a5568;'>" . $apiErrorMsg . "</p>
+         <p style='color:#718096; font-size:0.85rem;'>Host: " . parse_url($apiUrl, PHP_URL_HOST) . "</p>
          <div style='margin-top:20px;'><a href='" . $whmcsSystemUrl . "viewinvoice.php?id=" . $invoiceId . "' style='padding: 12px 24px; background:#007bff; color:white; text-decoration:none; border-radius:6px; font-weight:bold;'>Go Back</a></div>
          </div>");
 }
