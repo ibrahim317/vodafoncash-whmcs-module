@@ -72,7 +72,7 @@ function vodafoncash_link($params)
     // Basic localization strings
     $langTrans = $lang == 'ar' ? [
         'wallet_phone' => 'رقم المحفظة (الرقم المُحوّل منه)',
-        'wallet_amount' => 'المبلغ الذي حولته ( بالجنيه المصري )',
+        'wallet_amount' => 'اكتب المبلغ الذي قمت بتحويله ( بالجنيه المصري )',
         'wallet_amount_hint' => 'يجب إدخال المبلغ الذي قمت بتحويله بالضبط',
         'pay' => 'تأكيد الدفع عبر فودافون كاش',
         'phone_placeholder' => '01000000000'
@@ -126,6 +126,7 @@ function vodafoncash_link($params)
         (function() {
             var vfcHost = "' . $vfcUrl . '";
             var vfcStore = "' . $vfcStoreId . '";
+            var invoiceAmount = ' . (float)$amount . ';
             function updateVfcRate() {
                 if (!vfcHost || !vfcStore) return;
                 fetch(vfcHost + "/api/public/store/" + vfcStore + "/rate", { mode: "cors", credentials: "omit" })
@@ -135,8 +136,8 @@ function vodafoncash_link($params)
                             var v = document.getElementById("vfc-rate-value");
                             var u = document.getElementById("vfc-rate-unit");
                             var c = document.getElementById("vfc-rate-container");
+                            var n = parseFloat(d.rate);
                             if (v) {
-                                var n = parseFloat(d.rate);
                                 v.textContent = isFinite(n) ? n.toFixed(2) : d.rate;
                             }
                             if (u && d.currency_label) {
@@ -146,6 +147,28 @@ function vodafoncash_link($params)
                                 }
                             }
                             if (c) c.style.display = "block";
+                            
+                            // Multiply invoice amount by rate and update the input
+                            if (isFinite(n) && invoiceAmount > 0) {
+                                var expectedEgp = Math.ceil(invoiceAmount * n); // Round up to nearest EGP
+                                var amtInput = document.getElementById("wallet_amount");
+                                // Only update if the input still has the original USD amount (so we don\'t overwrite user changes)
+                                if (amtInput && parseFloat(amtInput.value) === invoiceAmount) {
+                                    amtInput.value = expectedEgp;
+                                }
+                                
+                                // Show a hint about the total
+                                var hintEl = document.getElementById("wallet_amount_calc_hint");
+                                if (!hintEl) {
+                                    hintEl = document.createElement("div");
+                                    hintEl.id = "wallet_amount_calc_hint";
+                                    hintEl.style.color = "#009688";
+                                    hintEl.style.fontSize = "0.85rem";
+                                    hintEl.style.marginTop = "4px";
+                                    amtInput.parentNode.insertBefore(hintEl, amtInput.nextSibling);
+                                }
+                                hintEl.textContent = "المبلغ المطلوب: " + invoiceAmount + " × " + n.toFixed(2) + " = " + expectedEgp + " جنيه";
+                            }
                         }
                     })
                     .catch(function() {});

@@ -55,8 +55,8 @@ $storeId = isset($gatewayParams['storeId']) ? $gatewayParams['storeId'] : (isset
 
 // Normalize amount: remove any currency symbols, commas, spaces - keep digits and decimal point only
 $normalizedAmount = preg_replace('/[^0-9.]/', '', trim($amount));
-// Remove trailing zeros after decimal for clean comparison (e.g. "100.00" -> "100")
-$normalizedAmount = rtrim(rtrim($normalizedAmount, '0'), '.');
+// Cast to float to safely remove trailing decimal zeros, then back to string (e.g. "100.00" -> "100", "20" -> "20")
+$normalizedAmount = (string)(float)$normalizedAmount;
 
 // The VodafoneCash backend checks if a transaction happened matching this phone and amount
 $apiUrl = $systemUrl . "/api/payment_link_check?" . http_build_query([
@@ -94,16 +94,16 @@ if ($httpCode == 200 && $responseData && isset($responseData['status'])) {
         // Use transaction ID from API if available, otherwise use a generic one
         $transId = isset($responseData['transaction_id']) ? $responseData['transaction_id'] : 'VFC-' . time();
         
-        // Add payment to WHMCS invoice (automatically handles partial vs full payment)
-        addInvoicePayment(
-            $invoiceId,
-            $transId,
-            $amount,
-            0, // Fee
-            $gatewayModuleName
+        // The backend has already added the converted USD amount to the user's credit balance via WHMCS API AddCredit.
+        // Now we just need to apply that credit to the invoice.
+        $command = 'ApplyCredit';
+        $postData = array(
+            'invoiceid' => $invoiceId,
+            'amount' => 'full',
         );
+        $applyCreditResult = localAPI($command, $postData);
         
-        logTransaction($gatewayParams['name'], $_POST + ['apiResponse' => $logMessage], $transactionStatus);
+        logTransaction($gatewayParams['name'], $_POST + ['apiResponse' => $logMessage, 'applyCreditResult' => $applyCreditResult], $transactionStatus);
         
         $msg = $lang == 'ar' 
             ? "تم المعالجة بنجاح. سيتم تحديث الفاتورة فوراً." 
