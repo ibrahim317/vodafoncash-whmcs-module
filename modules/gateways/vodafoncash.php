@@ -84,7 +84,22 @@ function vodafoncash_link($params)
         'phone_placeholder' => '01000000000'
     ];
 
-    // The HTML output will be rendered on the actual WHMCS invoice page.
+    // Issue #1: If the user is on the checkout completion page (cart.php), WHMCS will auto-submit the first form it finds.
+    // To prevent it from submitting an empty payment form, we redirect them to the invoice page.
+    $isInvoicePage = strpos($_SERVER['SCRIPT_NAME'], 'viewinvoice.php') !== false;
+    
+    if (!$isInvoicePage) {
+        return '<form action="viewinvoice.php" method="get">
+                    <input type="hidden" name="id" value="' . htmlspecialchars($invoiceId) . '" />
+                    <button type="submit" class="btn btn-primary" style="padding: 12px; font-weight: bold; font-size: 16px; background: #ff9c00; border: none; border-radius: 8px; color: #fff; cursor: pointer;">' . $langTrans['pay'] . '</button>
+                </form>
+                <script>
+                    setTimeout(function() {
+                        window.location.href = "viewinvoice.php?id=' . urlencode($invoiceId) . '";
+                    }, 0);
+                </script>';
+    }
+
     $vfcUrl = rtrim($params['systemUrl'], '/');
     $vfcStoreId = $params['storeId'];
 

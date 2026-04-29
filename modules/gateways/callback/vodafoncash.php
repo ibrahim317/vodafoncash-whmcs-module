@@ -58,11 +58,15 @@ $normalizedAmount = preg_replace('/[^0-9.]/', '', trim($amount));
 // Cast to float to safely remove trailing decimal zeros, then back to string (e.g. "100.00" -> "100", "20" -> "20")
 $normalizedAmount = (string)(float)$normalizedAmount;
 
+// Fetch client details for identifiable username
+$client = Capsule::table('tblclients')->where('id', $clientId)->first();
+$clientNameStr = $client ? trim($client->firstname . ' ' . $client->lastname . ' (' . $client->email . ')') : (string)$invoice->userid;
+
 // The VodafoneCash backend checks if a transaction happened matching this phone and amount
 $apiUrl = $systemUrl . "/api/payment_link_check?" . http_build_query([
     'phone'     => trim($phone),
     'amount'    => $normalizedAmount,
-    'user_name' => (string)$invoice->userid,
+    'user_name' => $clientNameStr,
     'store_id'  => (string)$storeId,
     'lang'      => $lang
 ]);
@@ -102,6 +106,20 @@ if ($httpCode == 200 && $responseData && isset($responseData['status'])) {
             'amount' => 'full',
         );
         $applyCreditResult = localAPI($command, $postData);
+        
+        // Auto-complete order if invoice is fully paid
+        $updatedInvoice = Capsule::table('tblinvoices')->where('id', $invoiceId)->first();
+        if ($updatedInvoice && $updatedInvoice->status === 'Paid') {
+            $order = Capsule::table('tblorders')->where('invoiceid', $invoiceId)->first();
+            if ($order && $order->status === 'Pending') {
+                $acceptOrderResult = localAPI('AcceptOrder', [
+                    'orderid' => $order->id,
+                    'autosetup' => true,
+                    'sendemail' => true,
+                ]);
+                $applyCreditResult['acceptOrder'] = $acceptOrderResult;
+            }
+        }
         
         logTransaction($gatewayParams['name'], $_POST + ['apiResponse' => $logMessage, 'applyCreditResult' => $applyCreditResult], $transactionStatus);
         
