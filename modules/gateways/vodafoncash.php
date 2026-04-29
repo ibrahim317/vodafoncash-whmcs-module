@@ -103,7 +103,7 @@ function vodafoncash_link($params)
     $vfcUrl = rtrim($params['systemUrl'], '/');
     $vfcStoreId = $params['storeId'];
 
-    $htmlOutput = '<div class="vfc-wrapper" style="max-width:400px; margin: 20px auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); font-family: sans-serif; text-align: center;" dir="' . ($lang == 'ar' ? 'rtl' : 'ltr') . '">';
+    $htmlOutput = '<div class="vfc-wrapper" style="position:relative; max-width:400px; margin: 20px auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); font-family: sans-serif; text-align: center;" dir="' . ($lang == 'ar' ? 'rtl' : 'ltr') . '">';
     
     // Logo
     $htmlOutput .= '<div style="margin-bottom: 20px;"><img src="https://storage.perfectcdn.com/zz3bz8/e5e5u46af2ete7z4.png" style="width: 180px; max-width: 100%;" /></div>';
@@ -114,7 +114,7 @@ function vodafoncash_link($params)
     $htmlOutput .= '<div style="font-weight: bold; color: #ff9c00; font-size: 1.2rem;"><span id="vfc-rate-unit">1USDT</span> = <span id="vfc-rate-value">...</span> EGP</div>';
     $htmlOutput .= '</div>';
 
-    $htmlOutput .= '<form method="post" action="' . htmlspecialchars($callbackUrl) . '">';
+    $htmlOutput .= '<form id="vfc-payment-form" method="post" action="' . htmlspecialchars($callbackUrl) . '">';
     
     // Phone Field
     $htmlOutput .= '<div class="form-group" style="margin-bottom: 15px; text-align: ' . ($lang == 'ar' ? 'right' : 'left') . ';">';
@@ -191,6 +191,31 @@ function vodafoncash_link($params)
             updateVfcRate();
         })();
     </script>';
+    
+    // Loading Overlay HTML
+    $htmlOutput .= '<div id="vfc-loading-overlay" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); z-index:999; border-radius:12px; flex-direction:column; justify-content:center; align-items:center; text-align:center;">';
+    $htmlOutput .= '<div style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #ff9c00; border-radius: 50%; animation: vfc-spin 1s linear infinite; margin: 0 auto 15px auto;"></div>';
+    $htmlOutput .= '<h3 style="color:#ff9c00; margin:0 0 10px 0;">' . ($lang == 'ar' ? 'جاري التأكد من طلبك' : 'Verifying your request...') . '</h3>';
+    $htmlOutput .= '<p style="color:#718096; margin:0; font-size:0.9rem;">' . ($lang == 'ar' ? 'لا تقم بتحديث الصفحة حتى يتم الانتهاء' : 'Please do not refresh the page until finished') . '</p>';
+    $htmlOutput .= '<style>@keyframes vfc-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
+    $htmlOutput .= '</div>';
+    
+    // Inline JS to handle form submission
+    $htmlOutput .= '<script>
+        document.getElementById("vfc-payment-form").addEventListener("submit", function() {
+            var overlay = document.getElementById("vfc-loading-overlay");
+            if (overlay) {
+                overlay.style.display = "flex";
+            }
+            
+            // Blur inputs to hide keyboard on mobile
+            var inputs = this.querySelectorAll("input");
+            for(var i=0; i<inputs.length; i++) {
+                inputs[i].blur();
+            }
+        });
+    </script>';
+
     $htmlOutput .= '</div>';
 
     return $htmlOutput;

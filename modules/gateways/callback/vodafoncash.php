@@ -99,30 +99,58 @@ if ($httpCode == 200 && $responseData && isset($responseData['status'])) {
         // Use transaction ID from API if available, otherwise use a generic one
         $transId = isset($responseData['transaction_id']) ? $responseData['transaction_id'] : 'VFC-' . time();
         
-        // The backend has already added the converted USD amount to the user's credit balance via WHMCS API AddCredit.
-        // Now we just need to apply that credit to the invoice.
-        $command = 'ApplyCredit';
-        $postData = array(
+        // Track all results for logging
+        $debugResults = [];
+        
+        // Step 1: Try to apply existing credit balance to the invoice.
+        // The VodafoneCash backend has already called WHMCS AddCredit to top up
+        // the client's credit balance, so ApplyCredit should use that.
+        $applyCreditResult = localAPI('ApplyCredit', [
             'invoiceid' => $invoiceId,
             'amount' => 'full',
-        );
-        $applyCreditResult = localAPI($command, $postData);
+        ]);
+        $debugResults['applyCredit'] = $applyCreditResult;
         
-        // Auto-complete order if invoice is fully paid
+        // Step 2: Check if the invoice is now Paid after applying credit.
         $updatedInvoice = Capsule::table('tblinvoices')->where('id', $invoiceId)->first();
+        $debugResults['invoiceStatusAfterCredit'] = $updatedInvoice ? $updatedInvoice->status : 'NOT_FOUND';
+        
+        // Step 3: If invoice is still not Paid, fall back to addInvoicePayment.
+        // This covers cases where ApplyCredit silently fails (timing, insufficient credit, etc.)
+        if (!$updatedInvoice || $updatedInvoice->status !== 'Paid') {
+            // Determine the payment amount — use the invoice total so it gets fully paid
+            $payAmount = $updatedInvoice ? $updatedInvoice->total : $normalizedAmount;
+            
+            $addPaymentResult = localAPI('AddInvoicePayment', [
+                'invoiceid' => $invoiceId,
+                'transid' => $transId,
+                'amount' => $payAmount,
+                'gateway' => $gatewayModuleName,
+            ]);
+            $debugResults['addInvoicePayment'] = $addPaymentResult;
+            
+            // Re-check invoice status after addInvoicePayment
+            $updatedInvoice = Capsule::table('tblinvoices')->where('id', $invoiceId)->first();
+            $debugResults['invoiceStatusAfterPayment'] = $updatedInvoice ? $updatedInvoice->status : 'NOT_FOUND';
+        }
+        
+        // Step 4: Auto-complete order if invoice is now fully paid
         if ($updatedInvoice && $updatedInvoice->status === 'Paid') {
             $order = Capsule::table('tblorders')->where('invoiceid', $invoiceId)->first();
+            $debugResults['orderFound'] = $order ? ['id' => $order->id, 'status' => $order->status] : 'NO_ORDER';
             if ($order && $order->status === 'Pending') {
                 $acceptOrderResult = localAPI('AcceptOrder', [
                     'orderid' => $order->id,
                     'autosetup' => true,
                     'sendemail' => true,
                 ]);
-                $applyCreditResult['acceptOrder'] = $acceptOrderResult;
+                $debugResults['acceptOrder'] = $acceptOrderResult;
             }
+        } else {
+            $debugResults['warning'] = 'Invoice still not Paid after all attempts. Status: ' . ($updatedInvoice ? $updatedInvoice->status : 'NOT_FOUND');
         }
         
-        logTransaction($gatewayParams['name'], $_POST + ['apiResponse' => $logMessage, 'applyCreditResult' => $applyCreditResult], $transactionStatus);
+        logTransaction($gatewayParams['name'], $_POST + ['apiResponse' => $logMessage, 'debugResults' => $debugResults], $transactionStatus);
         
         $msg = $lang == 'ar' 
             ? "تم المعالجة بنجاح. سيتم تحديث الفاتورة فوراً." 
